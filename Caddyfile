@@ -1,0 +1,37 @@
+# CADDY_SITE alan adiysa HTTPS kurulur (sertifika otomatik alinir ve yenilenir);
+# ":80" ise duz HTTP ile IP uzerinden yayin yapilir.
+#
+# Kayit e-postasi bilerek GLOBAL blokta degil: alan adi yokken TLS_EMAIL bos
+# kalir ve bos bir `email` satiri Caddy'nin yapilandirmayi ayristirmasini
+# tumden engelliyor.
+{$CADDY_SITE} {
+	encode gzip
+
+	# Mutfak ekraninin canli akisi (SSE). `flush_interval -1` her yazmayi
+	# aninda gonderir; tamponlama olursa siparis mutfaga hic dusmez.
+	handle /api/realtime/stream {
+		reverse_proxy app:3000 {
+			flush_interval -1
+			transport http {
+				response_header_timeout 24h
+				read_timeout 24h
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy app:3000
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}
+
+# www -> koke yonlendirilir; tek kanonik adres olsun, oturum cerezi bolunmesin.
+{$CADDY_WWW:www.invalid.localhost} {
+	redir https://{$CADDY_SITE}{uri} permanent
+}

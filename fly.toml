@@ -1,0 +1,44 @@
+# Fly.io yapilandirmasi — MANG
+# Bolge: fra (Frankfurt) — Turkiye'ye en yakin dusuk gecikmeli bolge.
+
+app = "mang"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # Her dagitimda migration'lar uygulanir (uygulama baslamadan once).
+  release_command = "node ./scripts/migrate-prod.mjs"
+  strategy = "rolling"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  # Cok kopyali calismada olaylarin kopyalar arasi akmasi icin
+  REALTIME_BROKER = "postgres"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # Mutfak ekrani surekli acik bir SSE baglantisi tutar; makine uyutulmamali.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    # SSE baglantilari uzun omurlu; esikler buna gore yuksek tutuldu.
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

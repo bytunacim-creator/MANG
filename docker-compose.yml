@@ -1,0 +1,86 @@
+# MANG — VPS dagitimi
+#
+#   docker compose up -d --build
+#
+# Caddy TLS sertifikasini Let's Encrypt'ten kendi alir ve yeniler; ayrica
+# yanit govdesini TAMPONLAMAZ, bu yuzden mutfak ekraninin SSE akisi calisir.
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mang
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD tanimli degil}
+      POSTGRES_DB: mang
+      # Turkce siralama ve tarih bicimi
+      LANG: tr_TR.utf8
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mang -d mang"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Disariya port acilmaz: yalnizca uygulama agi uzerinden erisilir.
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* degiskenleri derleme aninda pakete gomulur; calisma
+        # aninda verilmesi ise yaramaz, bu yuzden build arg olarak geciyor.
+        NEXT_PUBLIC_SUPPORT_WHATSAPP: ${SUPPORT_WHATSAPP:-}
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      DATABASE_URL: postgresql://mang:${DB_PASSWORD}@db:5432/mang
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET tanimli degil}
+      APP_URL: ${APP_URL:?APP_URL tanimli degil}
+      # Cok kopyali calismaya gecilirse olaylar kopyalar arasinda akar
+      REALTIME_BROKER: postgres
+      NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:destek@example.com}
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-MANG <noreply@example.com>}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
+      # SMS/WhatsApp koprusu (services/whatsapp-webhook). Host'ta PM2 ile
+      # calisir; konteyner ona `host.docker.internal` ile ulasir (extra_hosts).
+      SMS_WEBHOOK_URL: ${SMS_WEBHOOK_URL:-}
+      SMS_WEBHOOK_TOKEN: ${SMS_WEBHOOK_TOKEN:-}
+      # Klinik modulu: TC kimlik karmasi tuzu (rastgele, sabit tutun)
+      PATIENT_ID_PEPPER: ${PATIENT_ID_PEPPER:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Migration'lar her acilista uygulanir, sonra sunucu baslar.
+    command: sh -c "node ./scripts/migrate-prod.mjs && node server.js"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CADDY_SITE: ${CADDY_SITE:?CADDY_SITE tanimli degil}
+      CADDY_WWW: ${CADDY_WWW:-www.invalid.localhost}
+      TLS_EMAIL: ${TLS_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:
